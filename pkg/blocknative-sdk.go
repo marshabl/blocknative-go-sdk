@@ -9,6 +9,8 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+const WSSURL = "wss://api.blocknative.com/v0"
+
 const (
 	Main   = 1
 	Goerli = 5
@@ -18,7 +20,7 @@ const (
 
 const (
 	// Time allowed to write a message to the peer.
-	writeWait = 10 * time.Second
+	writeWait = 5 * time.Second
 
 	// Time allowed to read the next pong message from the peer.
 	pongWait = 10 * time.Second
@@ -26,8 +28,8 @@ const (
 	// Send pings to peer with this period. Must be less than pongWait.
 	pingPeriod = pongWait / 2
 
-	// Maximum message size allowed from peer.
-	maxMessageSize = 512
+	// retry to establish a new connection
+	retryWait = 10 * time.Second
 )
 
 const Version = "1.1"
@@ -66,7 +68,31 @@ func (n Network) String() string {
 	}
 }
 
-func (c Client) Authenticate(ctx context.Context) error {
+func Stream(dappId string, system System, network Network) (*Client, error) {
+	ctx := context.Background()
+	conn, _, err := websocket.DefaultDialer.DialContext(ctx, WSSURL, nil)
+
+	if err != nil {
+		log.Printf("Failed to create websocket connection.")
+		return nil, err
+	}
+
+	client := &Client{
+		Conn:    conn,
+		DappID:  dappId,
+		System:  system,
+		Network: network,
+	}
+
+	if err := client.authenticate(ctx); err != nil {
+		log.Printf("Failed to authenticate your APIKEY.")
+		return nil, err
+	}
+
+	return client, nil
+}
+
+func (c Client) authenticate(ctx context.Context) error {
 	authmsg := &BaseMessage{
 		Version:      Version,
 		CategoryCode: "initialize",
@@ -88,33 +114,31 @@ func (c Client) write(mt int, payload []byte) error {
 	return c.Conn.WriteMessage(mt, payload)
 }
 
-// write writes a message with the given message type and payload.
-func (c Client) read() ([]byte, error) {
-	_, msg, err := c.Conn.ReadMessage()
-	if err != nil {
-		log.Printf("error: %v", err)
-		return msg, err
-	}
-	return msg, nil
-}
-
-func (c Client) Writer() {
+func (c Client) writer(sub *Subscription) {
 	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		c.Conn.Close()
+	}()
+
+	c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+	c.Conn.SetPingHandler(func(string) error {
+		c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+		return nil
+	})
+
 	for {
-		select {
-		case <-ticker.C:
-			if err := c.write(websocket.PingMessage, []byte{}); err != nil {
-				log.Printf("error: %v", err)
-				break
-			}
+		<-ticker.C
+		if err := c.write(websocket.PingMessage, []byte{}); err != nil {
+			sub.ErrChan <- err
+			return
 		}
 	}
 }
 
-func (c Client) Reader(sub *Subscription) {
+func (c Client) reader(sub *Subscription) {
 	defer func() {
 		c.Conn.Close()
-		// TODO
 	}()
 
 	c.Conn.SetReadDeadline(time.Now().Add(pongWait))
@@ -123,29 +147,64 @@ func (c Client) Reader(sub *Subscription) {
 		return nil
 	})
 	for {
-		select {
-		case <-sub.ErrChan:
+		_, msg, err := c.Conn.ReadMessage()
+		if err != nil {
+			sub.ErrChan <- err
+			// if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
+			// 	log.Printf("READ error: %v", err.Error())
+			// }
+			// log.Printf("READ error: %v", err.Error())
+			// break
+		}
+		sub.EventChan <- msg
+	}
+}
+
+func (c Client) retryConnection(sub *Subscription, txnHandler func([]byte)) {
+	ticker := time.NewTicker(retryWait)
+	newSub := sub
+	for {
+		<-ticker.C
+		newClient, err := Stream(c.DappID, c.System, c.Network)
+		if err != nil {
+			log.Printf("error: %v", err.Error())
+		} else {
+			newClient.Subscribe(newSub, txnHandler)
 			return
-		default:
-			msg, err := c.read()
-			if err != nil {
-				log.Printf("error: %v", err)
-				return
-			}
-			sub.EventChan <- msg
 		}
 	}
 }
 
-func (c Client) Subscribe(ctx context.Context, s Subscriber, configs ...Config) error {
-	for _, config := range configs {
+func (c Client) Subscribe(sub *Subscription, txnHandler func([]byte)) {
+	for _, config := range sub.Configs {
 		configSubscriber := ConfigurationSubscriber{config}
 		configurationMessage := configSubscriber.SubscriptionMessage(c.buildBaseMessage(configSubscriber))
-		c.Conn.WriteJSON(configurationMessage)
+		if err := c.Conn.WriteJSON(configurationMessage); err != nil {
+			sub.ErrChan <- err
+		}
 	}
 
-	subscriptionMessage := s.SubscriptionMessage(c.buildBaseMessage(s))
-	return c.Conn.WriteJSON(subscriptionMessage)
+	subscriptionMessage := sub.Subscriber.SubscriptionMessage(c.buildBaseMessage(sub.Subscriber))
+	if err := c.Conn.WriteJSON(subscriptionMessage); err != nil {
+		sub.ErrChan <- err
+	}
+
+	go c.reader(sub)
+	go c.writer(sub)
+
+	for {
+		select {
+		case err := <-sub.ErrChan:
+			log.Printf("MAIN error: %v", err.Error())
+			c.retryConnection(sub, txnHandler)
+			return
+		default:
+			e, ok := <-sub.EventChan
+			if ok {
+				txnHandler(e)
+			}
+		}
+	}
 }
 
 func (c Client) buildBaseMessage(s Subscriber) BaseMessage {

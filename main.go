@@ -4,8 +4,6 @@ import (
 	"log"
 	"os"
 
-	bnsdk "github.com/marshabl/bnsdk/internal"
-
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -29,10 +27,10 @@ func main() {
 		"status": "pending",
 	}
 	filters = append(filters, filter)
-	config := bnsdk.NewConfig("global", filters)
+	config := NewConfig("global", filters)
 
-	sub := bnsdk.NewSubscription(common.HexToAddress(MONITORADDRESS), config)
-	client, err := bnsdk.Stream(APIKEY, SYSTEM, NETWORK)
+	sub := NewSubscription(common.HexToAddress(MONITORADDRESS), config)
+	client, err := Stream(APIKEY, SYSTEM, NETWORK)
 	if err != nil {
 		log.Printf("error: %v", err.Error())
 		return

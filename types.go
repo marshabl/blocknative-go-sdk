@@ -1,4 +1,4 @@
-package bnsdk
+package main
 
 import (
 	"time"

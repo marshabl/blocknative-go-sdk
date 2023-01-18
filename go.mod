@@ -1,4 +1,4 @@
-module blocknative-sdk
+module bnsdk
 
 go 1.18
 

@@ -1,7 +1,7 @@
 package main
 
 import (
-	bnsdk "blocknative-sdk/internal"
+	bnsdk "bnsdk/internal"
 	"log"
 	"os"
 

@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/marshabl/blocknative-go-sdk/bnsdk"
 )
 
 const SYSTEM = "ethereum"
@@ -27,10 +28,10 @@ func main() {
 		"status": "pending",
 	}
 	filters = append(filters, filter)
-	config := NewConfig("global", filters)
+	config := bnsdk.NewConfig("global", filters)
 
-	sub := NewSubscription(common.HexToAddress(MONITORADDRESS), config)
-	client, err := Stream(APIKEY, SYSTEM, NETWORK)
+	sub := bnsdk.NewSubscription(common.HexToAddress(MONITORADDRESS), config)
+	client, err := bnsdk.Stream(APIKEY, SYSTEM, NETWORK)
 	if err != nil {
 		log.Printf("error: %v", err.Error())
 		return

@@ -1,4 +1,4 @@
-module bnsdk
+module github.com/marshabl/bnsdk
 
 go 1.18
 

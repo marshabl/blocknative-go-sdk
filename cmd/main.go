@@ -1,9 +1,10 @@
 package main
 
 import (
-	bnsdk "bnsdk/internal"
 	"log"
 	"os"
+
+	bnsdk "github.com/marshabl/bnsdk/internal"
 
 	"github.com/ethereum/go-ethereum/common"
 )

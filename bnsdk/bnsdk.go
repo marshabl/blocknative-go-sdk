@@ -121,11 +121,11 @@ func (c Client) writer(sub *Subscription) {
 		c.Conn.Close()
 	}()
 
-	c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
-	c.Conn.SetPingHandler(func(string) error {
-		c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
-		return nil
-	})
+	// c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+	// c.Conn.SetPingHandler(func(string) error {
+	// 	c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+	// 	return nil
+	// })
 
 	for {
 		<-ticker.C
@@ -195,7 +195,7 @@ func (c Client) Subscribe(sub *Subscription, txnHandler func([]byte)) {
 	for {
 		select {
 		case err := <-sub.ErrChan:
-			log.Printf("MAIN error: %v", err.Error())
+			log.Printf("Main error: %v", err.Error())
 			c.retryConnection(sub, txnHandler)
 			return
 		default:

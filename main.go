@@ -10,7 +10,7 @@ import (
 
 const SYSTEM = "ethereum"
 const NETWORK = 1
-const MONITORADDRESS = "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45" //uniswap autorouter
+const MONITORADDRESS = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B" //uniswap universal router
 
 func txnHandler(e []byte) {
 	log.Printf("%v", string(e))

@@ -150,9 +150,9 @@ func (c Client) reader(sub *Subscription) {
 		_, msg, err := c.Conn.ReadMessage()
 		if err != nil {
 			sub.ErrChan <- err
-			// if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
-			// 	log.Printf("READ error: %v", err.Error())
-			// }
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
+				log.Printf("READ error: %v", err.Error())
+			}
 			// log.Printf("READ error: %v", err.Error())
 			// break
 		}
@@ -195,7 +195,7 @@ func (c Client) Subscribe(sub *Subscription, txnHandler func([]byte)) {
 	for {
 		select {
 		case err := <-sub.ErrChan:
-			log.Printf("Main error: %v", err.Error())
+			log.Printf("Blair error: %v", err.Error())
 			c.retryConnection(sub, txnHandler)
 			return
 		default:

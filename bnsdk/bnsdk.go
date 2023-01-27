@@ -20,16 +20,13 @@ const (
 
 const (
 	// Time allowed to write a message to the peer.
-	writeWait = 5 * time.Second
+	writeWait = 10 * time.Second
 
 	// Time allowed to read the next pong message from the peer.
-	pongWait = 10 * time.Second
+	pongWait = 60 * time.Second
 
 	// Send pings to peer with this period. Must be less than pongWait.
-	pingPeriod = pongWait / 2
-
-	// retry to establish a new connection
-	retryWait = 10 * time.Second
+	pingPeriod = (60 * time.Second * 9) / 10
 )
 
 const Version = "1.1"
@@ -39,7 +36,6 @@ type Conn interface {
 	WriteJSON(interface{}) error
 	Close() error
 	ReadMessage() (int, []byte, error)
-	SetPingHandler(func(string) error)
 	SetPongHandler(func(string) error)
 	SetWriteDeadline(time.Time) error
 	SetReadDeadline(time.Time) error
@@ -116,31 +112,18 @@ func (c Client) write(mt int, payload []byte) error {
 
 func (c Client) writer(sub *Subscription) {
 	ticker := time.NewTicker(pingPeriod)
-	defer func() {
-		ticker.Stop()
-		c.Conn.Close()
-	}()
-
-	// c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
-	// c.Conn.SetPingHandler(func(string) error {
-	// 	c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
-	// 	return nil
-	// })
+	defer ticker.Stop()
 
 	for {
 		<-ticker.C
 		if err := c.write(websocket.PingMessage, []byte{}); err != nil {
-			sub.ErrChan <- err
+			c.close(err, sub)
 			return
 		}
 	}
 }
 
 func (c Client) reader(sub *Subscription) {
-	defer func() {
-		c.Conn.Close()
-	}()
-
 	c.Conn.SetReadDeadline(time.Now().Add(pongWait))
 	c.Conn.SetPongHandler(func(string) error {
 		c.Conn.SetReadDeadline(time.Now().Add(pongWait))
@@ -149,62 +132,46 @@ func (c Client) reader(sub *Subscription) {
 	for {
 		_, msg, err := c.Conn.ReadMessage()
 		if err != nil {
-			sub.ErrChan <- err
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
-				log.Printf("READ error: %v", err.Error())
-			}
-			// log.Printf("READ error: %v", err.Error())
-			// break
-		}
-		sub.EventChan <- msg
-	}
-}
-
-func (c Client) retryConnection(sub *Subscription, txnHandler func([]byte)) {
-	ticker := time.NewTicker(retryWait)
-	newSub := sub
-	for {
-		<-ticker.C
-		newClient, err := Stream(c.DappID, c.System, c.Network)
-		if err != nil {
-			log.Printf("error: %v", err.Error())
-		} else {
-			newClient.Subscribe(newSub, txnHandler)
+			c.close(err, sub)
 			return
 		}
+		sub.txnHandler(msg)
 	}
 }
 
-func (c Client) Subscribe(sub *Subscription, txnHandler func([]byte)) {
+func (c Client) Subscribe(sub *Subscription) error {
 	for _, config := range sub.Configs {
 		configSubscriber := ConfigurationSubscriber{config}
 		configurationMessage := configSubscriber.SubscriptionMessage(c.buildBaseMessage(configSubscriber))
 		if err := c.Conn.WriteJSON(configurationMessage); err != nil {
-			sub.ErrChan <- err
+			c.close(err, sub)
+			return err
 		}
 	}
 
 	subscriptionMessage := sub.Subscriber.SubscriptionMessage(c.buildBaseMessage(sub.Subscriber))
 	if err := c.Conn.WriteJSON(subscriptionMessage); err != nil {
-		sub.ErrChan <- err
+		c.close(err, sub)
+		return err
 	}
 
 	go c.reader(sub)
 	go c.writer(sub)
 
 	for {
-		select {
-		case err := <-sub.ErrChan:
-			log.Printf("Blair error: %v", err.Error())
-			c.retryConnection(sub, txnHandler)
-			return
-		default:
-			e, ok := <-sub.EventChan
-			if ok {
-				txnHandler(e)
-			}
+		ok := <-sub.done
+		if !ok {
+			log.Printf("closing connection...")
+			sub.closeHandler(c.DappID, sub)
+			return nil
 		}
 	}
+}
+
+func (c Client) close(err error, sub *Subscription) {
+	defer c.Conn.Close()
+	sub.errHandler(err)
+	sub.done <- false
 }
 
 func (c Client) buildBaseMessage(s Subscriber) BaseMessage {

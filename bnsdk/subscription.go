@@ -45,14 +45,22 @@ type TransactionSubscriber struct {
 }
 
 type Subscription struct {
-	Subscriber Subscriber // Address or Transaction
-	Configs    []Config
-	EventChan  chan []byte
-	ErrChan    chan error
+	Subscriber   Subscriber // Address or Transaction
+	Configs      []Config
+	done         chan bool
+	txnHandler   func([]byte)
+	errHandler   func(error)
+	closeHandler func(string, *Subscription)
 }
 
 // NewSubscription creates a carrier for tracking events
-func NewSubscription(s SubscriptionOption, configs ...Config) *Subscription {
+func NewSubscription(
+	s SubscriptionOption,
+	txnHandler func([]byte),
+	errHandler func(error),
+	closeHandler func(string, *Subscription),
+	configs ...Config,
+) *Subscription {
 	var subscriber Subscriber
 
 	switch s.(type) {
@@ -69,10 +77,12 @@ func NewSubscription(s SubscriptionOption, configs ...Config) *Subscription {
 	}
 
 	return &Subscription{
-		Subscriber: subscriber,
-		Configs:    configs,
-		EventChan:  make(chan []byte),
-		ErrChan:    make(chan error, 1),
+		Subscriber:   subscriber,
+		Configs:      configs,
+		done:         make(chan bool),
+		txnHandler:   txnHandler,
+		errHandler:   errHandler,
+		closeHandler: closeHandler,
 	}
 }
 

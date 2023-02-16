@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"blocknative-go-sdk/bnsdk"
+	"github.com/marshabl/blocknative-go-sdk/bnsdk"
 
 	"github.com/ethereum/go-ethereum/common"
 )

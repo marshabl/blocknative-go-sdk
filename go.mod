@@ -1,4 +1,4 @@
-module blocknative-go-sdk
+module github.com/marshabl/blocknative-go-sdk/bnsdk
 
 go 1.18
 
